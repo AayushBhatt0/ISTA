@@ -3,8 +3,10 @@
                   4-Body Invariant Learning with O(N⁴) Compute
 ================================================================================
 
-SCIENTIFIC ACHIEVEMENT: Sub-1% relative error on genuine 4-body function 
-                       with only 1,100 trainable parameters
+NOTE: Post-hoc analysis reveals the model's architecture directly encodes  
+the target formula. See README "Honest Analysis" section for details.
+The engineering infrastructure (scan, checkpointing, sharding) is valid.
+The scientific claim of "learned" parameter efficiency is not.
 
 Research Question:
     Can extreme computational cost (O(N⁴)) enable extreme parameter efficiency
@@ -25,7 +27,7 @@ Model Architecture:
     - Computes det² geometric features directly
     - Learns attention weights for feature aggregation
 
-Empirical Results (10,000 epochs, 32 TPU cores, 42 minutes):
+Empirical Results (10,000 epochs, 32 TPU cores):
     - RMSE (raw scale):   0.0266  (target std: 3.42, mean: 23.3)
     - Relative Error:     0.78%   (RMSE / target_std)
     - Signal-to-Noise:    58.9 dB
@@ -60,7 +62,7 @@ from jax.experimental import mesh_utils
 
 RANDOM_SEED = 42
 
-# Uncomment for float64 precision
+# Uncomment for float64 precision (targets machine epsilon ~1e-15)
 # jax.config.update("jax_enable_x64", True)
 
 # ============================================================================
@@ -307,6 +309,18 @@ def compute_4body_invariant(points):
     # Normalize by N⁴ to get mean (cast to float32 to avoid overflow)
     num_4tuples = jnp.float32(num_points) ** 4
     return total_det_squared / num_4tuples
+
+
+def zero_parameter_baseline(point_clouds):
+    """
+    Zero-parameter baseline: raw det² average with no learned weights.
+    
+    If this achieves comparable error to Simplex4Net, it confirms that
+    ISTA's attention degenerates to uniform weights and learns nothing.
+    
+    This is the honest comparison ISTA should have included originally.
+    """
+    return jax.vmap(compute_4body_invariant)(point_clouds)[:, None, None]
 
 
 def generate_training_data(rng_key, num_samples, num_points, device_mesh):
@@ -614,19 +628,27 @@ if __name__ == "__main__":
         print(f"  SNR calculation failed: {error}")
 
     # ========================================================================
+    # Zero-Parameter Baseline Comparison (Honest Control)
+    # ========================================================================
+    print("\n" + "=" * 80)
+    print("Zero-Parameter Baseline (Raw Det² Average)")
+    print("=" * 80)
+
+    baseline_predictions = zero_parameter_baseline(test_clouds)
+    baseline_rmse = jnp.sqrt(jnp.mean(jnp.square(baseline_predictions - test_targets_raw)))
+    baseline_relative_error = baseline_rmse / target_std_actual * 100
+
+    print(f"  Baseline RMSE:           {baseline_rmse:.6e}")
+    print(f"  Baseline Relative Error: {baseline_relative_error:.3f}%")
+    print(f"  ISTA Relative Error:     {relative_error_percent:.3f}%")
+
+    # ========================================================================
     # Scientific Impact Summary
     # ========================================================================
     print("\n" + "=" * 80)
-    print("SCIENTIFIC ACHIEVEMENT SUMMARY")
+    print("SCIENTIFIC SUMMARY")
     print("=" * 80)
     print(f"✓ Task:             TRUE 4-body geometric invariant (4.3B 4-tuples)")
     print(f"✓ Model:            1,100 learnable parameters")
     print(f"✓ Accuracy:         {relative_error_percent:.2f}% relative error")
-    print(f"✓ Baseline:         Standard models use 100k-500k params for 2-5% error")
-    print(f"✓ Achievement:      100× parameter reduction with superior accuracy")
-    print(f"✓ Method:           Paid O(N⁴) compute cost for extreme efficiency")
-    print("=" * 80)
-    print("\nConclusion: Extreme compute enables extreme parameter efficiency for")
-    print("            structured geometric learning tasks. This validates the")
-    print("            'Compute vs. Parameters' tradeoff hypothesis.")
     print("=" * 80 + "\n")
