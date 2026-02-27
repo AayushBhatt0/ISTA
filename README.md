@@ -1,6 +1,6 @@
 # ISTA: Invariant Simplex Tensor Attention
 
-**Sub-1% relative error on genuine 4-body geometric invariants with only 1,100 parameters**
+**Engineering O(N⁴) computation on TPUs: a study in inductive bias alignment**
 
 ---
 
@@ -8,7 +8,7 @@
 
 ISTA explores the trade-off between computational cost and parameter efficiency for learning complex geometric invariants. It implements a 4-simplex attention mechanism (`Simplex4Net`) that exhaustively scans all O(N⁴) 4-tuples of a 3D point cloud, computes determinant-squared geometric features, and learns attention weights for feature aggregation.
 
-**Core Hypothesis:** Paying O(N⁴) compute cost enables extreme parameter efficiency. Standard O(N²) attention models need 100k–500k parameters and reach 2–5% error on complex invariant tasks. ISTA achieves **<1% error with ~1,100 parameters** by explicitly computing every 4-body interaction.
+**Core Hypothesis:** ISTA explores whether O(N⁴) exhaustive computation can replace learned parameters. The model achieves <1% error — but post-hoc analysis reveals this is due to architecture-target alignment: the model internally recomputes the target formula directly, making the learned parameters largely superfluous. This is documented as a cautionary result about inductive bias.
 
 ## Target Function
 
@@ -89,7 +89,64 @@ A naïve O(N⁴) implementation would require materializing an N×N×N×N tensor
 | **Relative error (RMSE / std)** | **0.78%** |
 | Signal-to-noise ratio | 58.9 dB |
 
-Compared to standard transformer models on comparable tasks (N=256, complex invariants), which typically use 100k–500k parameters and achieve 2–5% error, ISTA achieves superior accuracy with **~100× fewer parameters** by paying the O(N⁴) computational cost.
+Note: These results reflect training-set performance only. No held-out test set was used. The low error is attributable to architecture-target alignment, not generalization.
+
+## Honest Analysis (Post-Hoc)
+
+After TRC feedback submission, a critical flaw was identified:
+
+### Architecture-Target Alignment Problem
+
+The target function is:
+```
+target = (1/N⁴) Σ det²(...)
+```
+
+The model computes:
+```
+output = f( (1/N⁴) Σ sigmoid(E_ijkl) · det²(...) )
+```
+
+These are **structurally identical**. When attention projections converge 
+to near-zero (the path of least resistance for Adam), sigmoid(E) → 0.5 
+everywhere, and the output head learns to multiply by 2. The model 
+reduces to a ~2-parameter solution regardless of total capacity.
+
+### Zero-Parameter Baseline
+
+The honest baseline is simply computing the raw det² average with no 
+learned weights. This baseline would achieve comparable error to ISTA, 
+because ISTA's attention degenerates to uniform weights.
+
+**TODO:** Add zero-parameter baseline comparison.
+
+### What the O(N⁴) Compute Actually Does
+
+The quartic compute is real and necessary — but it is spent *evaluating 
+the target formula*, not learning anything. The model recomputes 4.3B 
+determinants per forward pass, which is the same computation used to 
+generate the training labels. The engineering infrastructure (scan, 
+checkpointing, GSPMD sharding) is valid; the scientific claim is not.
+
+### Actual Contribution
+
+The genuine contribution of this work is:
+
+1. A working O(N⁴) JAX pipeline on TPU v5e with `jax.lax.scan`, 
+   gradient checkpointing, and GSPMD sharding
+2. A concrete example of how perfect inductive bias alignment makes 
+   learned parameters redundant
+3. A negative result: you cannot claim "parameter efficiency" when the 
+   architecture encodes the answer
+
+### What a Valid Experiment Would Look Like
+
+To genuinely test the compute-vs-parameters tradeoff, the target must 
+**not** be recoverable by uniform attention weights. Better targets:
+- Variance of det² values (not a simple average)
+- Selective invariants depending on which 4-tuples are geometrically 
+  special
+- Any target that requires the model to *discriminate* between 4-tuples
 
 ## Training Configuration
 
@@ -156,5 +213,3 @@ This research is supported by **Google's Tensor Research Cloud (TRC)** program, 
 Apache 2.0 — see [LICENSE](LICENSE) for details.
 
 ---
-
-**Note:** This is experimental research code. The O(N⁴) complexity is impractical for large N, but demonstrates that exhaustive combinatorial computation can replace large parameter counts for structured geometric tasks.
