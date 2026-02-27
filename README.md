@@ -121,10 +121,10 @@ It will prompt you to select a zone, choose between creating a new TPU pod or re
 
 ```bash
 pip install jax flax optax
-python train.py
+python main.py
 ```
 
-> **Note:** With N=256 points, the O(N⁴) computation is very demanding. A single GPU will be significantly slower than a TPU pod. Reduce `NUM_POINTS_PER_CLOUD` or `NUM_TRAINING_SAMPLES` in `train.py` for faster local experimentation.
+> **Note:** With N=256 points, the O(N⁴) computation is very demanding. A single GPU will be significantly slower than a TPU pod. Reduce `NUM_POINTS_PER_CLOUD` or `NUM_TRAINING_SAMPLES` in `main.py` for faster local experimentation.
 
 ## Research Directions
 
